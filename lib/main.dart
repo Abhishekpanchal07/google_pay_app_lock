@@ -1,91 +1,3 @@
-/* import 'package:flutter/material.dart';
-import 'package:flutter_application_1/provider/auth_provider.dart';
-import 'package:provider/provider.dart';
-
-
-void main() {
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Secure Auth App',
-      home: const SplashScreen(),
-    );
-  }
-}
-
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    _initAuth();
-  }
-
-  Future<void> _initAuth() async {
-    final authProvider = context.read<AuthProvider>();
-    await authProvider.checkAuthAvailability();
-
-    if (authProvider.isAvailable) {
-      final success =  await authProvider.authenticate();
-
-      if (success == true) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      } else {
-        // You can retry or exit
-      }
-    } else {
-      // If auth unavailable, navigate directly or show setup screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Text("home Screen"),
-      ),
-    );
-  }
-}  */
-
-
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/provider/auth_provider.dart';
 import 'package:provider/provider.dart';
@@ -93,9 +5,7 @@ import 'package:provider/provider.dart';
 void main() {
   runApp(
     MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => AuthProvider())],
       child: const MyApp(),
     ),
   );
@@ -108,9 +18,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Secure Auth App',
-      theme: ThemeData(
-        useMaterial3: true,
-      ),
+      theme: ThemeData(useMaterial3: true),
       home: const AuthWrapper(), // Always start with AuthWrapper
     );
   }
@@ -124,14 +32,17 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
-  bool _isAuthenticated = false;
-  bool _isAuthenticating = false;
+  bool _authTriggerLock = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startAuthentication();
+
+    // Start authentication after build
+    Future.microtask(() {
+      context.read<AuthProvider>().startAuthentication();
+    });
   }
 
   @override
@@ -142,63 +53,32 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    
-    switch (state) {
-      case AppLifecycleState.resumed:
-        // When app comes back from background, require authentication again
-        if (_isAuthenticated) {
-          setState(() {
-            _isAuthenticated = false;
-          });
-          _startAuthentication();
-        }
-        break;
-      case AppLifecycleState.paused:
-      case AppLifecycleState.inactive:
-        // App is going to background, mark as not authenticated
-        setState(() {
-          _isAuthenticated = false;
-        });
-        break;
-      default:
-        break;
-    }
-  }
+    final auth = context.read<AuthProvider>();
 
-  Future<void> _startAuthentication() async {
-    if (_isAuthenticating) return;
-    
-    setState(() {
-      _isAuthenticating = true;
-    });
-
-    final authProvider = context.read<AuthProvider>();
-    await authProvider.checkAuthAvailability();
-
-    if (authProvider.isAvailable) {
-      final success = await authProvider.authenticate(context);
-      
-      setState(() {
-        _isAuthenticated = success;
-        _isAuthenticating = false;
-      });
-    } else {
-      // If auth unavailable, allow access
-      setState(() {
-        _isAuthenticated = true;
-        _isAuthenticating = false;
-      });
+    if (state == AppLifecycleState.resumed) {
+      // Prevent multiple calls on resume
+      if (!_authTriggerLock) {
+        _authTriggerLock = true;
+        auth.startAuthentication();
+      }
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _authTriggerLock = false;
+      auth.unauthenticate();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isAuthenticating || !_isAuthenticated) {
-      return const SplashScreen();
-    } else {
-      return const HomeScreen();
-    }
+    return Consumer<AuthProvider>(
+      builder: (_, auth, __) {
+        if (auth.isAuthenticating || !auth.isAuthenticated) {
+          return const SplashScreen();
+        } else {
+          return const HomeScreen();
+        }
+      },
+    );
   }
 }
 
